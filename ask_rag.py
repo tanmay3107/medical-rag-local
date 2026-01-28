@@ -1,7 +1,7 @@
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.chat_models import ChatOpenAI
-from langchain_community.chains import RetrievalQA
+from langchain_community.chains.retrieval_qa.base import RetrievalQA
 
 # 1. Setup Database
 print("🧠 Loading Memory...")
