@@ -1,18 +1,36 @@
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.chat_models import ChatOpenAI
-# ✅ MODERN IMPORTS
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
+
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
 
-# 1. Setup Database
+question = "What are the common symptoms of diabetes?"
+# 1. Load Vector DB
 print("🧠 Loading Memory...")
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-vector_db = Chroma(persist_directory="vectorstore/", embedding_function=embeddings)
-retriever = vector_db.as_retriever(search_kwargs={"k": 2}) # Get top 2 matches
+embeddings = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
+)
 
-# 2. Setup LLM (Pointing to your Local LM Studio)
+vector_db = Chroma(
+    persist_directory="vectorstore/",
+    embedding_function=embeddings
+)
+
+retriever = vector_db.as_retriever(search_kwargs={"k": 2})
+
+print("\n🔎 Retrieved documents:")
+docs = retriever.invoke(question)
+
+if not docs:
+    print("⚠️ No documents retrieved!")
+else:
+    for i, d in enumerate(docs):
+        print(f"\n--- Document {i+1} ---")
+        print(d.page_content[:500])
+
+# 2. Local LLM (LM Studio)
 llm = ChatOpenAI(
     base_url="http://localhost:1234/v1",
     api_key="lm-studio",
@@ -20,34 +38,33 @@ llm = ChatOpenAI(
     temperature=0.3
 )
 
-# 3. Define the Prompt (Your snippet)
-system_prompt = (
-    "Use the following pieces of retrieved context to answer the question. "
-    "If you don't know the answer, say that you don't know. "
-    "Answer concisely and professionally."
-    "\n\n"
-    "{context}"
-)
-
+# 3. Prompt
 prompt = ChatPromptTemplate.from_messages(
     [
-        ("system", system_prompt),
-        ("human", "{input}"),
+        (
+            "system",
+            "Using the following context, summarize the answer to the user's question "
+            "in your own words. Be concise and medically accurate.\n\n{context}"
+        ),
+        ("human", "{question}")
     ]
 )
 
-# 4. Create the Modern Chains (Your snippet)
-print("🔗 Building Retrieval Chain...")
-question_answer_chain = create_stuff_documents_chain(llm, prompt)
-rag_chain = create_retrieval_chain(retriever, question_answer_chain)
 
-# 5. Ask a Question
-question = "What are the common symptoms of diabetes?"
+# 4. Build RAG chain (PURE LCEL)
+rag_chain = (
+    {
+        "context": retriever,
+        "question": RunnablePassthrough()
+    }
+    | prompt
+    | llm
+    | StrOutputParser()
+)
+
+# 5. Ask question
 print(f"❓ Question: {question}")
 
-response = rag_chain.invoke({"input": question})
+answer = rag_chain.invoke(question)
 
-print(f"🤖 Answer: {response['answer']}")
-print("\n📄 Source Document Used:")
-# In the new chain, sources are under 'context', not 'source_documents'
-print(response['context'][0].page_content)
+print(f"\n🤖 Answer:\n{answer}")
